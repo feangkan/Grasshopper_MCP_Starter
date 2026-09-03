@@ -129,6 +129,20 @@ def pick_output_param(obj, sel):
     raise RuntimeError("%s exposes no output" % getattr(obj, "Name", obj))
 
 
+def pick_input_param(obj, sel):
+    if is_component(obj):
+        return _match_param(obj.Params.Input, sel)
+    if is_param(obj):
+        return obj
+    raise RuntimeError("%s exposes no input" % getattr(obj, "Name", obj))
+
+
+def hex_to_color(text):
+    t = str(text).lstrip("#")
+    r, g, b = int(t[0:2], 16), int(t[2:4], 16), int(t[4:6], 16)
+    return System.Drawing.Color.FromArgb(255, r, g, b)
+
+
 def rgb(color):
     try:
         return "#%02x%02x%02x" % (color.R, color.G, color.B)
@@ -415,6 +429,147 @@ def h_capture_viewport(args):
     return {"png_base64": _png_b64(bmp), "width": int(bmp.Width), "height": int(bmp.Height)}
 
 
+# ---- edit  (each mutation is wrapped in a named Grasshopper undo record) ----
+def _refresh():
+    try:
+        Grasshopper.Instances.ActiveCanvas.Refresh()
+    except Exception:
+        pass
+
+
+def _find_proxy(name):
+    key = str(name).strip().lower()
+    server = Grasshopper.Instances.ComponentServer
+    proxies = [p for p in server.ObjectProxies if not p.Obsolete]
+    for p in proxies:
+        if p.Desc.Name.lower() == key:
+            return p
+    contains = sorted(
+        (p for p in proxies if key in p.Desc.Name.lower()),
+        key=lambda p: len(p.Desc.Name),
+    )
+    if contains:
+        return contains[0]
+    import difflib
+    names = {p.Desc.Name.lower(): p for p in proxies}
+    m = difflib.get_close_matches(key, list(names), n=1, cutoff=0.7)
+    return names[m[0]] if m else None
+
+
+def h_add_component(args):
+    doc = active_doc()
+    proxy = _find_proxy(args["name"]) or _find_proxy(args.get("requested", args["name"]))
+    if proxy is None:
+        raise RuntimeError(
+            "no component matches %r; use the exact name from the GH ribbon" %
+            args.get("requested", args["name"])
+        )
+    obj = proxy.CreateInstance()
+    obj.CreateAttributes()
+    obj.Attributes.Pivot = System.Drawing.PointF(float(args["x"]), float(args["y"]))
+    obj.Attributes.ExpireLayout()
+    doc.UndoUtil.RecordAddObjectEvent("Claude: add " + obj.Name, obj)
+    doc.AddObject(obj, False)
+    if args.get("nickname"):
+        obj.NickName = args["nickname"]
+    doc.NewSolution(False)
+    return {"guid": str(obj.InstanceGuid), "name": obj.Name,
+            "nickname": obj.NickName, "matched_from": proxy.Desc.Name}
+
+
+def _set_decimal(slider, value):
+    try:
+        slider.SetSliderValue(System.Decimal(float(value)))
+    except Exception:
+        slider.SetSliderValue(System.Decimal.Parse(str(value)))
+
+
+def _select_value_list(vlist, value):
+    want = str(value).strip().lower()
+    for i, item in enumerate(vlist.ListItems):
+        if item.Name.lower() == want or item.Expression.strip().lower() == want:
+            vlist.SelectItem(i)
+            return
+    raise RuntimeError("value list has no item %r" % value)
+
+
+def h_set_value(args):
+    doc = active_doc()
+    obj = find(doc, args["guid"])
+    if obj is None:
+        raise RuntimeError("no object with guid %r" % args["guid"])
+    value, tn = args["value"], type(obj).__name__
+    doc.UndoUtil.RecordGenericObjectEvent("Claude: set value on " + obj.NickName, obj)
+    if tn == "GH_NumberSlider":
+        _set_decimal(obj, value)
+    elif tn == "GH_BooleanToggle":
+        obj.Value = bool(value)
+    elif tn == "GH_Panel":
+        obj.SetUserText(str(value))
+    elif tn == "GH_ValueList":
+        _select_value_list(obj, value)
+    else:
+        raise RuntimeError("%s (%s) is not a settable input" % (obj.NickName, tn))
+    obj.ExpireSolution(True)
+    doc.NewSolution(False)
+    return {"guid": args["guid"], "value": value, "type": tn}
+
+
+def h_connect(args):
+    doc = active_doc()
+    src = find(doc, args["source"])
+    tgt = find(doc, args["target"])
+    if src is None or tgt is None:
+        raise RuntimeError("source or target guid not found")
+    sp = pick_output_param(src, args.get("source_param"))
+    tp = pick_input_param(tgt, args.get("target_param"))
+    doc.UndoUtil.RecordGenericObjectEvent("Claude: connect wire", tgt if is_component(tgt) else tp)
+    tp.AddSource(sp)
+    doc.NewSolution(False)
+    return {"from_param": sp.Name, "to_param": tp.Name}
+
+
+def h_disconnect(args):
+    doc = active_doc()
+    src = find(doc, args["source"])
+    tgt = find(doc, args["target"])
+    if src is None or tgt is None:
+        raise RuntimeError("source or target guid not found")
+    sp = pick_output_param(src, args.get("source_param"))
+    tp = pick_input_param(tgt, args.get("target_param"))
+    doc.UndoUtil.RecordGenericObjectEvent("Claude: remove wire", tgt if is_component(tgt) else tp)
+    try:
+        tp.RemoveSource(sp)
+    except Exception:
+        raise RuntimeError("those parameters were not connected")
+    doc.NewSolution(False)
+    return {"from_param": sp.Name, "to_param": tp.Name}
+
+
+def h_delete(args):
+    doc = active_doc()
+    objs = [o for o in (find(doc, g) for g in args["guids"]) if o is not None]
+    if not objs:
+        raise RuntimeError("no matching objects to delete")
+    for o in objs:
+        doc.UndoUtil.RecordRemoveObjectEvent("Claude: delete " + o.NickName, o)
+        doc.RemoveObject(o, False)
+    doc.NewSolution(False)
+    return {"deleted": [str(o.InstanceGuid) for o in objs]}
+
+
+def h_set_pivot(args):
+    doc = active_doc()
+    obj = find(doc, args["guid"])
+    if obj is None:
+        raise RuntimeError("no object with guid %r" % args["guid"])
+    doc.UndoUtil.RecordGenericObjectEvent("Claude: move " + obj.NickName, obj)
+    obj.Attributes.Pivot = System.Drawing.PointF(float(args["x"]), float(args["y"]))
+    obj.Attributes.ExpireLayout()
+    _refresh()
+    return {"guid": args["guid"], "x": args["x"], "y": args["y"]}
+
+
 HANDLERS = {
     "ping": h_ping,
     "get_canvas": h_get_canvas,
@@ -423,6 +578,12 @@ HANDLERS = {
     "solve": h_solve,
     "capture_canvas": h_capture_canvas,
     "capture_viewport": h_capture_viewport,
+    "add_component": h_add_component,
+    "set_value": h_set_value,
+    "connect": h_connect,
+    "disconnect": h_disconnect,
+    "delete": h_delete,
+    "set_pivot": h_set_pivot,
 }
 
 

@@ -38,6 +38,13 @@ COMMANDS = (
     # --- M3: vision ---------------------------------------------------
     "capture_canvas",
     "capture_viewport",
+    # --- M4: edit ---------------------------------------------------
+    "add_component",
+    "set_value",
+    "connect",
+    "disconnect",
+    "delete",
+    "set_pivot",
 )
 
 
