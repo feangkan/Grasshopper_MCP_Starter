@@ -1,0 +1,19 @@
+[project]
+name = "grasshopper-mcp"
+version = "1.0.0"
+description = "Claude <-> Grasshopper bridge: an MCP server that reads, sees and edits a live Grasshopper canvas."
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=2,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.setuptools]
+packages = ["server"]

@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.uv/
+
+# Rhino / Grasshopper
+*.3dmbak
+*.ghbak
+*.rhl
+
+# Bridge runtime
+claude_gh_bridge.json
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Local scratch
+scratch/
+*.tmp
