@@ -359,12 +359,70 @@ def h_solve(args):
     }
 
 
+# ---- vision -------------------------------------------------------------
+def _png_b64(bmp):
+    ms = System.IO.MemoryStream()
+    bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png)
+    return System.Convert.ToBase64String(ms.ToArray())
+
+
+def _zoom_fit(canvas, doc):
+    try:
+        box = doc.BoundingBox(False)
+        if box.Width <= 0 or box.Height <= 0:
+            return
+        pad = 40.0
+        vp = canvas.Viewport
+        vp.Target = System.Drawing.PointF(box.X + box.Width / 2.0, box.Y + box.Height / 2.0)
+        zx = canvas.Width / (box.Width + pad * 2)
+        zy = canvas.Height / (box.Height + pad * 2)
+        vp.Zoom = max(0.1, min(1.0, min(zx, zy)))
+        canvas.Refresh()
+    except Exception:
+        pass
+
+
+def h_capture_canvas(args):
+    canvas = Grasshopper.Instances.ActiveCanvas
+    if canvas is None:
+        raise RuntimeError("no active Grasshopper canvas (is the GH window open?)")
+    if args.get("zoom_fit", True):
+        _zoom_fit(canvas, active_doc())
+
+    bmp, method = None, "GenerateHiResImage"
+    gen = getattr(canvas, "GenerateHiResImage", None)
+    if callable(gen):
+        try:
+            bmp = gen()
+        except Exception:
+            bmp = None
+    if bmp is None:
+        method = "DrawToBitmap"
+        w, h = max(int(canvas.Width), 8), max(int(canvas.Height), 8)
+        bmp = System.Drawing.Bitmap(w, h)
+        canvas.DrawToBitmap(bmp, System.Drawing.Rectangle(0, 0, w, h))
+    return {"png_base64": _png_b64(bmp), "width": int(bmp.Width),
+            "height": int(bmp.Height), "method": method}
+
+
+def h_capture_viewport(args):
+    rdoc = Rhino.RhinoDoc.ActiveDoc
+    view = rdoc.Views.ActiveView if rdoc else None
+    if view is None:
+        raise RuntimeError("no active Rhino viewport")
+    size = System.Drawing.Size(int(args.get("width", 1280)), int(args.get("height", 720)))
+    bmp = view.CaptureToBitmap(size)
+    return {"png_base64": _png_b64(bmp), "width": int(bmp.Width), "height": int(bmp.Height)}
+
+
 HANDLERS = {
     "ping": h_ping,
     "get_canvas": h_get_canvas,
     "get_errors": h_get_errors,
     "get_value": h_get_value,
     "solve": h_solve,
+    "capture_canvas": h_capture_canvas,
+    "capture_viewport": h_capture_viewport,
 }
 
 

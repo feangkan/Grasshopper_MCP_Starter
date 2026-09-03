@@ -7,12 +7,14 @@ The bridge does the actual Grasshopper API work on Rhino's UI thread.
 Tools are grouped by the milestone that introduced them:
   M1  gh_ping
   M2  gh_get_canvas, gh_get_errors, gh_get_value, gh_solve
+  M3  gh_capture_canvas, gh_capture_viewport
 """
 from __future__ import annotations
 
+import base64
 from typing import Any
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Image, MCPServer
 
 from .bridge_client import BridgeClient
 
@@ -78,6 +80,32 @@ def gh_solve(force: bool = False) -> dict[str, Any]:
     error/warning counts. force=True expires every object first (a full rebuild).
     """
     return _bridge().call("solve", {"force": force})
+
+
+# ---------------------------------------------------------------------------
+# M3 -- vision
+# ---------------------------------------------------------------------------
+@mcp.tool()
+def gh_capture_canvas(zoom_fit: bool = True) -> Image:
+    """Return a PNG screenshot of the Grasshopper canvas so Claude can see the
+    node graph. zoom_fit=True asks Grasshopper to frame all components first.
+    """
+    result = _bridge().call("capture_canvas", {"zoom_fit": zoom_fit})
+    return _png(result)
+
+
+@mcp.tool()
+def gh_capture_viewport(width: int = 1280, height: int = 720) -> Image:
+    """Return a PNG screenshot of the active Rhino viewport so Claude can see the
+    geometry the definition produces.
+    """
+    result = _bridge().call("capture_viewport", {"width": width, "height": height})
+    return _png(result)
+
+
+def _png(result: dict[str, Any]) -> Image:
+    data = base64.b64decode(result["png_base64"])
+    return Image(data=data, format="png")
 
 
 if __name__ == "__main__":

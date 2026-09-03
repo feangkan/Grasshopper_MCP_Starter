@@ -35,6 +35,9 @@ COMMANDS = (
     "get_errors",
     "get_value",
     "solve",
+    # --- M3: vision ---------------------------------------------------
+    "capture_canvas",
+    "capture_viewport",
 )
 
 
