@@ -11,6 +11,9 @@ Claude MCP server connects to. Commands received on that socket are executed on
 Rhino's UI thread against the Grasshopper document this component lives in, then
 a one-line JSON reply is sent back.
 
+Objects are addressed by InstanceGuid, so your manual dragging never invalidates
+Claude's references.
+
 Safety: listens on loopback only, no authentication -- it assumes anything able
 to open a local socket on your machine is you. Toggle `enable` off when not in use.
 
@@ -42,7 +45,7 @@ except Exception:  # pragma: no cover - only inside Rhino
 
 
 # =========================================================================
-# Document helpers
+# Document / object helpers
 # =========================================================================
 def active_doc():
     """The GH_Document this component lives in (falls back to the active canvas)."""
@@ -64,6 +67,73 @@ def _safe_doc_name():
         return d.DisplayName if d else "<none>"
     except Exception:
         return "<none>"
+
+
+def is_component(obj):
+    return hasattr(obj, "Params") and getattr(obj, "Params", None) is not None
+
+
+def is_param(obj):
+    return hasattr(obj, "AddSource")
+
+
+def find(doc, guid):
+    if doc is None or guid is None:
+        return None
+    try:
+        g = System.Guid.Parse(str(guid))
+    except Exception:
+        return None
+    obj = doc.FindObject(g, True)
+    if obj is None:
+        obj = doc.FindObject(g, False)
+    return obj
+
+
+def top_object(param):
+    try:
+        return param.Attributes.GetTopLevel.DocObject
+    except Exception:
+        return param
+
+
+def _match_param(params, sel):
+    plist = list(params)
+    if not plist:
+        raise RuntimeError("object has no parameters on that side")
+    if sel is None:
+        return plist[0]
+    try:
+        i = int(sel)
+        if 0 <= i < len(plist):
+            return plist[i]
+    except (ValueError, TypeError):
+        pass
+    s = str(sel).strip().lower()
+    for p in plist:
+        if p.Name.lower() == s or p.NickName.lower() == s:
+            return p
+    for p in plist:
+        if s in p.Name.lower():
+            return p
+    raise RuntimeError(
+        "no parameter matching %r; available: %s" % (sel, [p.Name for p in plist])
+    )
+
+
+def pick_output_param(obj, sel):
+    if is_component(obj):
+        return _match_param(obj.Params.Output, sel)
+    if is_param(obj):
+        return obj
+    raise RuntimeError("%s exposes no output" % getattr(obj, "Name", obj))
+
+
+def rgb(color):
+    try:
+        return "#%02x%02x%02x" % (color.R, color.G, color.B)
+    except Exception:
+        return None
 
 
 # =========================================================================
@@ -136,8 +206,165 @@ def h_ping(args):
     }
 
 
+def _param_dict(p, role):
+    return {
+        "name": p.Name,
+        "nickname": p.NickName,
+        "role": role,
+        "type": p.TypeName,
+        "guid": str(p.InstanceGuid),
+        "data_count": int(p.VolatileDataCount),
+        "sources": [str(s.InstanceGuid) for s in p.Sources],
+    }
+
+
+def _object_extra(obj):
+    tn = type(obj).__name__
+    try:
+        if tn == "GH_NumberSlider":
+            return {"value": float(obj.CurrentValue),
+                    "min": float(obj.Slider.Minimum),
+                    "max": float(obj.Slider.Maximum)}
+        if tn == "GH_BooleanToggle":
+            return {"value": bool(obj.Value)}
+        if tn == "GH_Panel":
+            return {"value": obj.UserText}
+    except Exception:
+        pass
+    return {}
+
+
+def h_get_canvas(args):
+    doc = active_doc()
+    if doc is None:
+        raise RuntimeError("no active Grasshopper document")
+    limit = int(args.get("limit", 800))
+    objects, groups, wires = [], [], []
+
+    for obj in list(doc.Objects):
+        tn = type(obj).__name__
+        if tn == "GH_Group":
+            groups.append({
+                "guid": str(obj.InstanceGuid),
+                "name": obj.NickName,
+                "colour": rgb(obj.Colour),
+                "member_guids": [str(g) for g in obj.ObjectIDs],
+            })
+            continue
+        rec = {
+            "guid": str(obj.InstanceGuid),
+            "name": obj.Name,
+            "nickname": obj.NickName,
+            "kind": "component" if is_component(obj) else ("param" if is_param(obj) else tn),
+            "type_name": tn,
+        }
+        try:
+            piv = obj.Attributes.Pivot
+            rec["pivot"] = {"x": float(piv.X), "y": float(piv.Y)}
+        except Exception:
+            rec["pivot"] = None
+        rec.update(_object_extra(obj))
+        if is_component(obj):
+            rec["inputs"] = [_param_dict(p, "input") for p in obj.Params.Input]
+            rec["outputs"] = [_param_dict(p, "output") for p in obj.Params.Output]
+        objects.append(rec)
+        if len(objects) >= limit:
+            break
+
+    for obj in list(doc.Objects):
+        targets = obj.Params.Input if is_component(obj) else ([obj] if is_param(obj) else [])
+        for tp in targets:
+            for src in tp.Sources:
+                wires.append({
+                    "from_obj": str(top_object(src).InstanceGuid),
+                    "from_param": src.Name,
+                    "to_obj": str(obj.InstanceGuid),
+                    "to_param": tp.Name,
+                })
+
+    return {
+        "doc_name": doc.DisplayName,
+        "object_count": doc.ObjectCount,
+        "truncated": doc.ObjectCount > len(objects),
+        "objects": objects,
+        "groups": groups,
+        "wires": wires,
+    }
+
+
+def _messages(doc, level):
+    from Grasshopper.Kernel import GH_RuntimeMessageLevel  # noqa
+
+    out = []
+    lv = {"error": GH_RuntimeMessageLevel.Error,
+          "warning": GH_RuntimeMessageLevel.Warning}[level]
+    for obj in list(doc.Objects):
+        fn = getattr(obj, "RuntimeMessages", None)
+        if fn is None:
+            continue
+        try:
+            for text in fn(lv):
+                out.append({
+                    "guid": str(obj.InstanceGuid),
+                    "nickname": obj.NickName,
+                    "name": obj.Name,
+                    "level": level,
+                    "text": text,
+                })
+        except Exception:
+            pass
+    return out
+
+
+def h_get_errors(args):
+    doc = active_doc()
+    errors = _messages(doc, "error")
+    warnings = _messages(doc, "warning")
+    return {"error_count": len(errors), "warning_count": len(warnings),
+            "messages": errors + warnings}
+
+
+def h_get_value(args):
+    doc = active_doc()
+    obj = find(doc, args.get("guid"))
+    if obj is None:
+        raise RuntimeError("no object with guid %r" % args.get("guid"))
+    param = pick_output_param(obj, args.get("param"))
+    data = param.VolatileData
+    cap = int(args.get("limit", 200))
+    values, total = [], 0
+    try:
+        for i in range(data.PathCount):
+            branch = data.Branch(data.Path(i))
+            for goo in branch:
+                total += 1
+                if len(values) < cap:
+                    values.append(str(goo))
+    except Exception:
+        pass
+    return {"type": param.TypeName, "count": total, "truncated": total > len(values),
+            "values": values}
+
+
+def h_solve(args):
+    doc = active_doc()
+    t0 = datetime.datetime.now()
+    doc.NewSolution(bool(args.get("force", False)))
+    dt = (datetime.datetime.now() - t0).total_seconds() * 1000.0
+    return {
+        "ran": True,
+        "duration_ms": round(dt, 1),
+        "errors": len(_messages(doc, "error")),
+        "warnings": len(_messages(doc, "warning")),
+    }
+
+
 HANDLERS = {
     "ping": h_ping,
+    "get_canvas": h_get_canvas,
+    "get_errors": h_get_errors,
+    "get_value": h_get_value,
+    "solve": h_solve,
 }
 
 

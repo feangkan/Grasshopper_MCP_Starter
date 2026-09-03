@@ -30,6 +30,11 @@ TERMINATOR = "\n"
 COMMANDS = (
     # --- M1: liveness -----------------------------------------------------
     "ping",
+    # --- M2: read state -------------------------------------------------
+    "get_canvas",
+    "get_errors",
+    "get_value",
+    "solve",
 )
 
 
