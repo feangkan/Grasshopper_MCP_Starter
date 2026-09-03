@@ -35,6 +35,25 @@ architectural-python-starter does not apply. These rules do.
 - The bridge listens on `127.0.0.1` only and has no auth. Do not add a bind
   address option that accepts anything else.
 
+## Reconciling the canvas before a new definition
+The bridge shares **one** live Grasshopper canvas across every session and every
+project, so nodes from earlier work are routinely still there. Do not just build
+on top of them.
+- **Read first.** Begin any new definition with `gh_get_canvas`. If objects are
+  present that are not part of what the user is now asking for, name them (by
+  nickname) and ask: **keep or clear?** Never assume.
+- **Clear on request.** "start fresh" / "new project" / "clear the canvas" →
+  `gh_clear_canvas`. Run it with `dry_run=True` first, show the user the list,
+  then run it for real. It always protects the Claude Bridge component and its
+  toggle/panel; pass `keep=[…]` for guids or group-title substrings to spare.
+- **Group what you build.** Put each project's nodes in one titled group
+  (`gh_annotate` / `gh_create_group`). Then "this project" is a single unit that
+  can be kept (`keep=["Tower Study"]`) or cleared later.
+- **Never delete the user's manual work** without asking. An object you did not
+  create this session and that is not obviously an orphan gets a question first.
+- After a build, leave no disconnected leftovers from your own scaffolding —
+  delete a component you added and then decided against.
+
 ## The working loop (this is the product, not a nicety)
 After each build step, in order:
 1. `gh_solve` (or rely on the auto-solve the mutation triggered).

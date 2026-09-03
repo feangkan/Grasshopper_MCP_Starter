@@ -268,6 +268,31 @@ def gh_auto_layout(
     return {"moved": len(moves)}
 
 
+# ---------------------------------------------------------------------------
+# housekeeping -- the bridge shares ONE live canvas across every session, so
+# leftovers from earlier work pile up. This is how you start clean.
+# ---------------------------------------------------------------------------
+@mcp.tool()
+def gh_clear_canvas(keep: list[str] | None = None, dry_run: bool = False) -> dict[str, Any]:
+    """Remove stale nodes, keeping only what matters.
+
+    Deletes every object on the canvas EXCEPT:
+      - the Claude Bridge component and anything wired to it -- always protected,
+        so clearing never cuts your own connection;
+      - any InstanceGuid you pass in `keep`;
+      - any group whose title contains a string you pass in `keep` (keeps the
+        whole group and its members).
+
+    dry_run=True returns what WOULD be deleted and changes nothing -- use it to
+    show the user the list and get a yes first. One undo record: Ctrl+Z in
+    Grasshopper restores everything.
+
+    Typical use: at the start of a new definition, or when the user says
+    "start fresh" / "clear the canvas" / "new project".
+    """
+    return _bridge().call("clear_canvas", {"keep": keep or [], "dry_run": dry_run})
+
+
 def _annotate_plan(guids, title, note, colour, stage):
     heading = f"{stage} - {title}" if stage is not None else title
     if colour is None:

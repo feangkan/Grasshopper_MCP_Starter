@@ -23,6 +23,7 @@ def test_command_set_matches_expectation():
         "capture_canvas", "capture_viewport",
         "add_component", "set_value", "connect", "disconnect", "delete", "set_pivot",
         "set_nickname", "create_group", "add_panel", "add_scribble",
+        "clear_canvas",
         "batch",
     }
 

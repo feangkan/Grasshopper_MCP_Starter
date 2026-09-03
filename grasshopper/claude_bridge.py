@@ -605,6 +605,72 @@ def h_set_pivot(args):
     return {"guid": args["guid"], "x": args["x"], "y": args["y"]}
 
 
+def _bridge_cluster(doc):
+    """Guids of this bridge component and whatever is wired straight to it (its
+    enable toggle, status panel). clear_canvas must never touch these."""
+    try:
+        me = ghenv.Component  # noqa: F821 - injected by GH
+    except Exception:
+        return set()
+    ids = {str(me.InstanceGuid)}
+    try:
+        for p in list(me.Params.Input):
+            for s in p.Sources:
+                ids.add(str(top_object(s).InstanceGuid))
+        for p in list(me.Params.Output):
+            for r in p.Recipients:
+                ids.add(str(top_object(r).InstanceGuid))
+    except Exception:
+        pass
+    return ids
+
+
+def h_clear_canvas(args):
+    doc = active_doc()
+    if doc is None:
+        raise RuntimeError("no active Grasshopper document")
+    keep_tokens = {str(k).strip().lower() for k in (args.get("keep") or []) if str(k).strip()}
+    protected = _bridge_cluster(doc)
+
+    groups = [o for o in list(doc.Objects) if type_name(o) == "GH_Group"]
+    kept_group_ids = set()
+    for g in groups:
+        nn = (g.NickName or "").lower()
+        gid = str(g.InstanceGuid).lower()
+        if gid in keep_tokens or any(t in nn for t in keep_tokens if len(t) > 2):
+            kept_group_ids.add(str(g.InstanceGuid))
+            for member in g.ObjectIDs:
+                keep_tokens.add(str(member).lower())
+
+    def kept(o):
+        gid = str(o.InstanceGuid)
+        return gid in protected or gid.lower() in keep_tokens
+
+    victims = [o for o in list(doc.Objects)
+               if type_name(o) != "GH_Group" and not kept(o)]
+    dead_groups = [g for g in groups if str(g.InstanceGuid) not in kept_group_ids]
+
+    if args.get("dry_run"):
+        return {"would_delete": [{"guid": str(o.InstanceGuid), "name": o.Name,
+                                  "nickname": o.NickName} for o in victims],
+                "would_remove_groups": len(dead_groups),
+                "protected": sorted(protected)}
+
+    label = "Claude: clear canvas (%d)" % (len(victims) + len(dead_groups))
+    removed = 0
+    for o in victims + dead_groups:
+        try:
+            doc.UndoUtil.RecordRemoveObjectEvent(label, o)
+            doc.RemoveObject(o, False)
+            removed += 1
+        except Exception:
+            pass
+    doc.NewSolution(False)
+    _refresh()
+    return {"deleted": len(victims), "groups_removed": len(dead_groups),
+            "removed_total": removed, "protected": sorted(protected)}
+
+
 # ---- legibility ------------------------------------------------------
 def h_set_nickname(args):
     doc = active_doc()
@@ -763,6 +829,7 @@ HANDLERS = {
     "create_group": h_create_group,
     "add_panel": h_add_panel,
     "add_scribble": h_add_scribble,
+    "clear_canvas": h_clear_canvas,
     "batch": h_batch,
 }
 

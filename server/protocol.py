@@ -50,6 +50,8 @@ COMMANDS = (
     "create_group",
     "add_panel",
     "add_scribble",
+    # --- housekeeping ------------------------------------------------
+    "clear_canvas",
     # --- batching -----------------------------------------------------
     "batch",
 )

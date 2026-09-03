@@ -107,3 +107,21 @@ Reads the canvas, lays groups out left-to-right in stage order (a leading number
 in the group title sets the order), stacks each group's members vertically, and
 moves everything. Ungrouped objects go in a trailing column. Objects already in
 place are not touched.
+
+---
+
+## Housekeeping
+
+The bridge drives **one** Grasshopper canvas, shared by every session. Nodes from
+earlier work stay put until removed.
+
+### `gh_clear_canvas(keep=None, dry_run=False)`
+Delete everything on the canvas except:
+- the **Claude Bridge** component and whatever is wired to it — always protected,
+  so clearing can't sever the connection;
+- any InstanceGuid listed in `keep`;
+- any group whose **title contains** a string in `keep` — keeps that whole group
+  and its members (e.g. `keep=["Tower Study"]`).
+
+`dry_run=True` returns `would_delete[]` and changes nothing — use it to show the
+list and confirm first. One undo record; `Ctrl+Z` restores everything.
