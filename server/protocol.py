@@ -26,7 +26,7 @@ ENCODING = "utf-8"
 TERMINATOR = "\n"
 
 # Every command name the bridge understands. Kept here so the server and the
-# test suite share one source of truth. Grows as milestones land.
+# test suite share one source of truth.
 COMMANDS = (
     # --- M1: liveness -----------------------------------------------------
     "ping",
@@ -45,6 +45,13 @@ COMMANDS = (
     "disconnect",
     "delete",
     "set_pivot",
+    # --- M5: legibility -------------------------------------------------
+    "set_nickname",
+    "create_group",
+    "add_panel",
+    "add_scribble",
+    # --- batching -----------------------------------------------------
+    "batch",
 )
 
 

@@ -11,8 +11,10 @@ Claude MCP server connects to. Commands received on that socket are executed on
 Rhino's UI thread against the Grasshopper document this component lives in, then
 a one-line JSON reply is sent back.
 
-Objects are addressed by InstanceGuid, so your manual dragging never invalidates
-Claude's references.
+Every command that changes the canvas is wrapped in a named Grasshopper undo
+record, so anything Claude does can be undone with Ctrl+Z and is labelled
+"Claude: ..." in the Edit menu. Objects are addressed by InstanceGuid, so your
+manual dragging never invalidates Claude's references.
 
 Safety: listens on loopback only, no authentication -- it assumes anything able
 to open a local socket on your machine is you. Toggle `enable` off when not in use.
@@ -23,6 +25,7 @@ To pick up edits to this file: toggle `enable` off, then on.
 import datetime
 import json
 import os
+import socket
 import socketserver
 import tempfile
 import threading
@@ -429,14 +432,7 @@ def h_capture_viewport(args):
     return {"png_base64": _png_b64(bmp), "width": int(bmp.Width), "height": int(bmp.Height)}
 
 
-# ---- edit  (each mutation is wrapped in a named Grasshopper undo record) ----
-def _refresh():
-    try:
-        Grasshopper.Instances.ActiveCanvas.Refresh()
-    except Exception:
-        pass
-
-
+# ---- edit -------------------------------------------------------------
 def _find_proxy(name):
     key = str(name).strip().lower()
     server = Grasshopper.Instances.ComponentServer
@@ -484,15 +480,6 @@ def _set_decimal(slider, value):
         slider.SetSliderValue(System.Decimal.Parse(str(value)))
 
 
-def _select_value_list(vlist, value):
-    want = str(value).strip().lower()
-    for i, item in enumerate(vlist.ListItems):
-        if item.Name.lower() == want or item.Expression.strip().lower() == want:
-            vlist.SelectItem(i)
-            return
-    raise RuntimeError("value list has no item %r" % value)
-
-
 def h_set_value(args):
     doc = active_doc()
     obj = find(doc, args["guid"])
@@ -513,6 +500,15 @@ def h_set_value(args):
     obj.ExpireSolution(True)
     doc.NewSolution(False)
     return {"guid": args["guid"], "value": value, "type": tn}
+
+
+def _select_value_list(vlist, value):
+    want = str(value).strip().lower()
+    for i, item in enumerate(vlist.ListItems):
+        if item.Name.lower() == want or item.Expression.strip().lower() == want:
+            vlist.SelectItem(i)
+            return
+    raise RuntimeError("value list has no item %r" % value)
 
 
 def h_connect(args):
@@ -570,6 +566,146 @@ def h_set_pivot(args):
     return {"guid": args["guid"], "x": args["x"], "y": args["y"]}
 
 
+# ---- legibility ------------------------------------------------------
+def h_set_nickname(args):
+    doc = active_doc()
+    obj = find(doc, args["guid"])
+    if obj is None:
+        raise RuntimeError("no object with guid %r" % args["guid"])
+    doc.UndoUtil.RecordGenericObjectEvent("Claude: rename", obj)
+    obj.NickName = args["nickname"]
+    try:
+        obj.Attributes.ExpireLayout()
+    except Exception:
+        pass
+    obj.ExpireSolution(True)
+    doc.NewSolution(False)
+    return {"guid": args["guid"], "nickname": obj.NickName}
+
+
+def h_create_group(args):
+    from Grasshopper.Kernel.Special import GH_Group
+
+    doc = active_doc()
+    g = GH_Group()
+    g.CreateAttributes()
+    g.NickName = args["name"]
+    if args.get("colour"):
+        try:
+            g.Colour = hex_to_color(args["colour"])
+        except Exception:
+            pass
+    doc.UndoUtil.RecordAddObjectEvent("Claude: group " + args["name"], g)
+    doc.AddObject(g, False)
+    added = 0
+    for gid in args["guids"]:
+        try:
+            g.AddObject(System.Guid.Parse(str(gid)))
+            added += 1
+        except Exception:
+            pass
+    g.ExpireCaches()
+    _refresh()
+    return {"guid": str(g.InstanceGuid), "members": added}
+
+
+def _anchor_xy(doc, args):
+    ids = args.get("anchor_group_of")
+    if not ids:
+        return float(args.get("x", 0.0)), float(args.get("y", 0.0))
+    xs, ys = [], []
+    for gid in ids:
+        o = find(doc, gid)
+        try:
+            b = o.Attributes.Bounds
+            xs.append(float(b.X))
+            ys.append(float(b.Y))
+        except Exception:
+            pass
+    if not xs:
+        return float(args.get("x", 0.0)), float(args.get("y", 0.0))
+    return min(xs), min(ys) - float(args.get("height", 90)) - 28.0
+
+
+def h_add_panel(args):
+    from Grasshopper.Kernel.Special import GH_Panel
+
+    doc = active_doc()
+    p = GH_Panel()
+    p.CreateAttributes()
+    x, y = _anchor_xy(doc, args)
+    w, h = float(args.get("width", 200)), float(args.get("height", 90))
+    p.Attributes.Bounds = System.Drawing.RectangleF(x, y, w, h)
+    p.Attributes.Pivot = System.Drawing.PointF(x, y)
+    for name, val in (("Multiline", True), ("Wrap", True),
+                      ("DrawIndices", False), ("DrawPaths", False)):
+        try:
+            setattr(p.Properties, name, val)
+        except Exception:
+            pass
+    try:
+        p.SetUserText(str(args["text"]))
+    except Exception:
+        p.UserText = str(args["text"])
+    if args.get("nickname"):
+        p.NickName = args["nickname"]
+    doc.UndoUtil.RecordAddObjectEvent("Claude: note panel", p)
+    doc.AddObject(p, False)
+    p.ExpireSolution(True)
+    return {"guid": str(p.InstanceGuid)}
+
+
+def h_add_scribble(args):
+    from Grasshopper.Kernel.Special import GH_Scribble
+
+    doc = active_doc()
+    x, y = float(args["x"]), float(args["y"])
+    pt = System.Drawing.PointF(x, y)
+    try:
+        s = GH_Scribble(pt)
+    except Exception:
+        s = GH_Scribble()
+    s.CreateAttributes()
+    try:
+        s.Text = str(args["text"])
+    except Exception:
+        pass
+    try:
+        s.FontSize = float(args.get("size", 20))
+    except Exception:
+        pass
+    try:
+        s.Attributes.Pivot = pt
+    except Exception:
+        pass
+    doc.UndoUtil.RecordAddObjectEvent("Claude: scribble", s)
+    doc.AddObject(s, False)
+    _refresh()
+    return {"guid": str(s.InstanceGuid)}
+
+
+def h_batch(args):
+    results = []
+    for cmd in args.get("commands", []):
+        fn = HANDLERS.get(cmd.get("cmd"))
+        if fn is None:
+            results.append({"ok": False, "error": "unknown: %s" % cmd.get("cmd")})
+            continue
+        try:
+            results.append({"ok": True, "result": fn(cmd.get("args", {}))})
+        except Exception as exc:
+            results.append({"ok": False, "error": str(exc),
+                            "trace": traceback.format_exc()})
+    return {"results": results, "count": len(results)}
+
+
+def _refresh():
+    try:
+        Grasshopper.Instances.ActiveCanvas.Refresh()
+    except Exception:
+        pass
+
+
 HANDLERS = {
     "ping": h_ping,
     "get_canvas": h_get_canvas,
@@ -584,6 +720,11 @@ HANDLERS = {
     "disconnect": h_disconnect,
     "delete": h_delete,
     "set_pivot": h_set_pivot,
+    "set_nickname": h_set_nickname,
+    "create_group": h_create_group,
+    "add_panel": h_add_panel,
+    "add_scribble": h_add_scribble,
+    "batch": h_batch,
 }
 
 

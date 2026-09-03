@@ -9,6 +9,8 @@ Tools are grouped by the milestone that introduced them:
   M2  gh_get_canvas, gh_get_errors, gh_get_value, gh_solve
   M3  gh_capture_canvas, gh_capture_viewport
   M4  gh_add_component, gh_set_value, gh_connect, gh_disconnect, gh_delete
+  M5  gh_set_nickname, gh_create_group, gh_add_panel, gh_add_scribble,
+      gh_annotate, gh_auto_layout
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ from mcp.server.mcpserver import Image, MCPServer
 
 from .bridge_client import BridgeClient
 from .knowledge_base import resolve_component_name
+from .layout import compute_layout
 
 mcp = MCPServer("grasshopper")
 
@@ -175,8 +178,107 @@ def gh_disconnect(source: str, target: str, target_param: str | None = None) -> 
 
 @mcp.tool()
 def gh_delete(guids: list[str]) -> dict[str, Any]:
-    """Delete one or more objects by guid. Each is a named undo record."""
+    """Delete one or more objects by guid. Wrapped in a single undo record."""
     return _bridge().call("delete", {"guids": guids})
+
+
+# ---------------------------------------------------------------------------
+# M5 -- make the definition legible to someone who did not build it
+# ---------------------------------------------------------------------------
+@mcp.tool()
+def gh_set_nickname(guid: str, nickname: str) -> dict[str, Any]:
+    """Rename an object's nickname (what shows on the component and on hover)."""
+    return _bridge().call("set_nickname", {"guid": guid, "nickname": nickname})
+
+
+@mcp.tool()
+def gh_create_group(
+    guids: list[str], name: str, colour: str | None = None
+) -> dict[str, Any]:
+    """Group objects and give the group a title.
+
+    colour  Optional "#rrggbb". Convention:
+            green  #d7ecd9  inputs the user edits
+            blue   #d8e6f3  geometry
+            orange #f6e0c8  outputs
+            grey   #e6e6e6  internal machinery
+    """
+    return _bridge().call("create_group", {"guids": guids, "name": name, "colour": colour})
+
+
+@mcp.tool()
+def gh_add_panel(
+    x: float, y: float, text: str, nickname: str | None = None,
+    width: float = 200, height: float = 90,
+) -> dict[str, Any]:
+    """Drop a text panel on the canvas -- use it as a how-to note next to a group."""
+    return _bridge().call(
+        "add_panel",
+        {"x": x, "y": y, "text": text, "nickname": nickname, "width": width, "height": height},
+    )
+
+
+@mcp.tool()
+def gh_add_scribble(x: float, y: float, text: str, size: float = 20) -> dict[str, Any]:
+    """Add a large free-floating scribble label (a heading on the canvas)."""
+    return _bridge().call("add_scribble", {"x": x, "y": y, "text": text, "size": size})
+
+
+@mcp.tool()
+def gh_annotate(
+    guids: list[str],
+    title: str,
+    note: str,
+    colour: str | None = None,
+    stage: int | None = None,
+) -> dict[str, Any]:
+    """One call to make a group legible: colour + title it, and place a how-to
+    note panel just above it.
+
+    guids   objects to group.
+    title   group heading, e.g. "INPUTS -- Tower Dimensions".
+    note    plain-language instructions shown in a panel above the group.
+    colour  "#rrggbb"; defaults to green if stage in (None, 1), else grey.
+    stage   optional stage number; prefixes the title as "N - ...".
+    """
+    return _bridge().call(
+        "batch",
+        {"commands": _annotate_plan(guids, title, note, colour, stage)},
+    )
+
+
+@mcp.tool()
+def gh_auto_layout(
+    origin_x: float = 80, origin_y: float = 80,
+    col_gap: float = 260, row_gap: float = 90,
+) -> dict[str, Any]:
+    """Tidy the canvas: lay groups out left-to-right in stage order on a grid,
+    stacking each group's components vertically. Reads the canvas, computes new
+    positions, and moves everything in one undo record.
+    """
+    canvas = _bridge().call("get_canvas")
+    moves = compute_layout(
+        canvas,
+        origin_x=origin_x, origin_y=origin_y, col_gap=col_gap, row_gap=row_gap,
+    )
+    if not moves:
+        return {"moved": 0}
+    cmds = [{"cmd": "set_pivot", "args": m} for m in moves]
+    _bridge().call("batch", {"commands": cmds})
+    return {"moved": len(moves)}
+
+
+def _annotate_plan(guids, title, note, colour, stage):
+    heading = f"{stage} - {title}" if stage is not None else title
+    if colour is None:
+        colour = "#d7ecd9" if stage in (None, 1) else "#e6e6e6"
+    return [
+        {"cmd": "create_group", "args": {"guids": guids, "name": heading, "colour": colour}},
+        {"cmd": "add_panel", "args": {
+            "x": 0, "y": 0, "text": note, "nickname": f"{heading} - how to",
+            "anchor_group_of": guids, "anchor": "above",
+        }},
+    ]
 
 
 if __name__ == "__main__":
