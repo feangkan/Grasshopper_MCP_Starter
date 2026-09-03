@@ -2,56 +2,59 @@
 
 One line per lesson, naming the **cause**. Newest first.
 
-## Confirmed
+## Confirmed in Rhino 8 (first click-test, 2026-09-03 — Rhino 8.21.25188)
 
-- **`mcp` 2.x renamed `FastMCP` to `MCPServer`.** `from mcp.server.fastmcp import
-  FastMCP` raises a migration error on import under mcp >= 2. Use
-  `from mcp.server.mcpserver import MCPServer, Image`; the `.tool()` decorator and
-  `.run()` are unchanged. `pyproject.toml` pins `mcp>=2,<3`.
+- **The Python 3 Script component's variable IS the input's nickname,
+  case-sensitive.** Inputs named `Enable` / `Port` left the code's `enable` /
+  `port` undefined -> `NameError` -> caught -> bridge silently stayed OFF. Fix:
+  entry point reads `globals().get("enable", globals().get("Enable", False))`;
+  still, name the inputs lowercase.
 
-- **pytest could not import `server/`.** No `src` layout and the project is not
-  installed, so the repo root was not on `sys.path`. Fixed with
-  `pythonpath = ["."]` in `[tool.pytest.ini_options]`, not by adding
-  `__init__.py` to `tests/`.
+- **`type(obj).__name__` returns the interface (`IGH_DocumentObject`) under
+  pythonnet, not the concrete class.** Every slider/panel/toggle check and all
+  value reads silently no-opped. Fix: `type_name(obj)` -> `obj.GetType().Name`
+  (gives `GH_NumberSlider`, `GH_Panel`, `Component_Circle`, `Python3Component`).
 
-- **`compute_layout` no-ops an object already at its target.** A test assumed
-  every member appears in the move list; an object already at the computed pixel
-  is deliberately omitted so a second call is a no-op and the undo record stays
-  small. Test fixed, behaviour kept.
+- **`IGH_Structure` volatile-data iteration.** `data.PathCount` / `data.Path(i)`
+  / `data.Branch(path)` threw, was swallowed by a bare `except`, so `get_value`
+  returned `count: 0` even when `VolatileDataCount` was 1. Fix: iterate
+  `param.VolatileData.AllData(True)` and take `count` from
+  `param.VolatileDataCount`. Read errors now surface as `read_error` in the
+  result instead of an empty list.
 
-## Unverified — first Rhino click-test must exercise these
+- **Never swallow a Rhino API exception silently.** All three bugs above were
+  masked by bare `except: pass`. Handlers now attach the error to the response
+  (`*_err`, `read_error`) so the next probe sees it.
 
-The bridge's Grasshopper API calls cannot run outside Rhino. On first run in
-Rhino 8, watch these specifically:
+- **`GH_NumberSlider.SetSliderValue` clamps to the slider's range.** Setting 11
+  on a default 0..1 slider silently became 1.0. `set_value` now widens
+  `Slider.Minimum` / `Slider.Maximum` to fit and returns `applied` + a `note`.
 
-1. **UI-thread marshalling.** `Grasshopper.Instances.DocumentEditor.Invoke(
-   System.Action(fn))` from the socket thread — that pythonnet delegate
-   conversion and the synchronous `Invoke` returning before we read the result
-   box. Fallback path `Rhino.RhinoApp.InvokeOnUiThread(System.Action, None)` with
-   an `Event` wait is even less certain. This is the M1 risk; if it fails,
-   nothing else matters.
-2. **`scriptcontext.sticky` persistence** of the running server across solutions
-   and across a script edit (toggle `enable` off/on to restart cleanly).
-3. **`_find_proxy`** iterating `Grasshopper.Instances.ComponentServer.ObjectProxies`
-   and `proxy.CreateInstance()` — proxy `.Obsolete` / `.Desc.Name` shape, and
-   whether every proxy is safe to instantiate.
-4. **Undo records.** `doc.UndoUtil.RecordAddObjectEvent` /
-   `RecordGenericObjectEvent` / `RecordRemoveObjectEvent` signatures in Rhino 8,
-   and whether `RecordRemoveObjectEvent` accepts a list (currently called
-   per-object, so N undo entries for a multi-delete — batching into one record
-   is a known future refinement).
-5. **Slider set.** `GH_NumberSlider.SetSliderValue(System.Decimal(float))` — the
-   `Decimal` construction from a Python float via pythonnet; fallback is
-   `System.Decimal.Parse(str)`.
-6. **`GH_Panel`.** `SetUserText` vs the `UserText` property, and the
-   `p.Properties.Multiline / Wrap / DrawIndices / DrawPaths` names.
-7. **`GH_Scribble`.** Constructor (`GH_Scribble(PointF)` vs parameterless) and
-   whether setting `.Text` + `.FontSize` + `Attributes.Pivot` is enough to make
-   it render. Group titles are the reliable heading mechanism if scribbles prove
-   fragile.
-8. **Canvas capture.** `GH_Canvas.GenerateHiResImage()` may not exist in this
-   build; fallback is `canvas.DrawToBitmap`, which can return blank for
-   custom-painted controls. `_zoom_fit` sets `Viewport.Target` / `.Zoom`
-   directly — property names unverified.
-9. **`get_value`.** `param.VolatileData` iteration via `.PathCount` / `.Path(i)`
-   / `.Branch(path)` — method vs indexer form in the Rhino 8 `IGH_Structure`.
+- **Decimal -> float via pythonnet is flaky.** `float(obj.CurrentValue)` on a
+  `System.Decimal` could throw. Use `float(str(x))` (`_num`).
+
+- **`mcp` 2.x renamed `FastMCP` to `MCPServer`.** `from mcp.server.mcpserver
+  import MCPServer, Image`; `.tool()` / `.run()` unchanged. Pinned `mcp>=2,<3`.
+
+- **pytest could not import `server/`.** Fixed with `pythonpath = ["."]` in
+  `[tool.pytest.ini_options]`.
+
+## Verified working in Rhino 8
+
+M1 ping · M2 get_canvas / get_errors / get_value / solve · M3 capture_viewport ·
+M4 add_component (catalogue fuzzy match) / connect (by param name) / set_value /
+delete · M5 set_nickname / create_group (+colour) / add_panel / add_scribble /
+batch / set_pivot. Undo records show as `Claude: ...` in the Edit menu.
+
+## Still weak
+
+- **`capture_canvas` only grabs the visible canvas region.**
+  `GH_Canvas.GenerateHiResImage` does not exist in this build; the `DrawToBitmap`
+  fallback captures the control at its current on-screen size, so a hidden or
+  small Grasshopper window yields a cropped shot. Workaround: bring the GH window
+  forward and size it before asking. A proper full-definition renderer (walk
+  `doc` attributes onto a sized `Graphics`) is deferred. `capture_viewport` (the
+  geometry) is unaffected and reliable — prefer it.
+
+- **Multi-delete writes one undo record per object**, not one combined record.
+  Cosmetic; `GH_UndoRecord` batching is a future refinement.

@@ -72,6 +72,15 @@ def _safe_doc_name():
         return "<none>"
 
 
+def type_name(obj):
+    """Concrete .NET class name. `type(obj).__name__` under pythonnet often
+    yields the interface ('IGH_DocumentObject'), so ask the CLR directly."""
+    try:
+        return obj.GetType().Name
+    except Exception:
+        return type(obj).__name__
+
+
 def is_component(obj):
     return hasattr(obj, "Params") and getattr(obj, "Params", None) is not None
 
@@ -235,19 +244,33 @@ def _param_dict(p, role):
     }
 
 
+def _num(x):
+    """.NET Decimal / Single -> float, robustly (pythonnet Decimal->float is flaky)."""
+    return float(str(x))
+
+
 def _object_extra(obj):
-    tn = type(obj).__name__
-    try:
-        if tn == "GH_NumberSlider":
-            return {"value": float(obj.CurrentValue),
-                    "min": float(obj.Slider.Minimum),
-                    "max": float(obj.Slider.Maximum)}
-        if tn == "GH_BooleanToggle":
+    tn = type_name(obj)
+    if tn == "GH_NumberSlider":
+        out = {}
+        for key, getter in (("value", lambda: obj.CurrentValue),
+                            ("min", lambda: obj.Slider.Minimum),
+                            ("max", lambda: obj.Slider.Maximum)):
+            try:
+                out[key] = _num(getter())
+            except Exception as exc:
+                out[key + "_err"] = str(exc)
+        return out
+    if tn == "GH_BooleanToggle":
+        try:
             return {"value": bool(obj.Value)}
-        if tn == "GH_Panel":
+        except Exception as exc:
+            return {"value_err": str(exc)}
+    if tn == "GH_Panel":
+        try:
             return {"value": obj.UserText}
-    except Exception:
-        pass
+        except Exception as exc:
+            return {"value_err": str(exc)}
     return {}
 
 
@@ -259,7 +282,7 @@ def h_get_canvas(args):
     objects, groups, wires = [], [], []
 
     for obj in list(doc.Objects):
-        tn = type(obj).__name__
+        tn = type_name(obj)
         if tn == "GH_Group":
             groups.append({
                 "guid": str(obj.InstanceGuid),
@@ -347,20 +370,21 @@ def h_get_value(args):
     if obj is None:
         raise RuntimeError("no object with guid %r" % args.get("guid"))
     param = pick_output_param(obj, args.get("param"))
-    data = param.VolatileData
     cap = int(args.get("limit", 200))
-    values, total = [], 0
+    total = int(param.VolatileDataCount)
+    values, read_error = [], None
     try:
-        for i in range(data.PathCount):
-            branch = data.Branch(data.Path(i))
-            for goo in branch:
-                total += 1
-                if len(values) < cap:
-                    values.append(str(goo))
-    except Exception:
-        pass
-    return {"type": param.TypeName, "count": total, "truncated": total > len(values),
-            "values": values}
+        for goo in param.VolatileData.AllData(True):
+            if len(values) >= cap:
+                break
+            values.append(str(goo))
+    except Exception as exc:
+        read_error = str(exc)
+    out = {"type": param.TypeName, "count": total,
+           "truncated": total > len(values), "values": values}
+    if read_error:
+        out["read_error"] = read_error
+    return out
 
 
 def h_solve(args):
@@ -429,7 +453,8 @@ def h_capture_viewport(args):
         raise RuntimeError("no active Rhino viewport")
     size = System.Drawing.Size(int(args.get("width", 1280)), int(args.get("height", 720)))
     bmp = view.CaptureToBitmap(size)
-    return {"png_base64": _png_b64(bmp), "width": int(bmp.Width), "height": int(bmp.Height)}
+    return {"png_base64": _png_b64(bmp), "width": int(bmp.Width), "height": int(bmp.Height),
+            "method": "CaptureToBitmap"}
 
 
 # ---- edit -------------------------------------------------------------
@@ -485,10 +510,19 @@ def h_set_value(args):
     obj = find(doc, args["guid"])
     if obj is None:
         raise RuntimeError("no object with guid %r" % args["guid"])
-    value, tn = args["value"], type(obj).__name__
+    value, tn = args["value"], type_name(obj)
     doc.UndoUtil.RecordGenericObjectEvent("Claude: set value on " + obj.NickName, obj)
+    note = None
     if tn == "GH_NumberSlider":
-        _set_decimal(obj, value)
+        lo, hi = _num(obj.Slider.Minimum), _num(obj.Slider.Maximum)
+        want = float(value)
+        if not lo <= want <= hi:
+            note = "requested %s is outside the slider range %s..%s; widened it" % (want, lo, hi)
+            if want < lo:
+                obj.Slider.Minimum = System.Decimal(want)
+            if want > hi:
+                obj.Slider.Maximum = System.Decimal(want)
+        _set_decimal(obj, want)
     elif tn == "GH_BooleanToggle":
         obj.Value = bool(value)
     elif tn == "GH_Panel":
@@ -499,7 +533,12 @@ def h_set_value(args):
         raise RuntimeError("%s (%s) is not a settable input" % (obj.NickName, tn))
     obj.ExpireSolution(True)
     doc.NewSolution(False)
-    return {"guid": args["guid"], "value": value, "type": tn}
+    out = {"guid": args["guid"], "value": value, "type": tn}
+    if tn == "GH_NumberSlider":
+        out["applied"] = _num(obj.CurrentValue)
+    if note:
+        out["note"] = note
+    return out
 
 
 def _select_value_list(vlist, value):
@@ -840,14 +879,14 @@ def _shutdown(rec):
 # =========================================================================
 # Component entry point -- runs on every solution
 # =========================================================================
+# The script variable IS the input parameter's nickname, case-sensitive. Accept
+# either capitalisation so a stray "Enable" / "Port" nickname still works.
+_g = globals()
+_enable = bool(_g.get("enable", _g.get("Enable", False)))
+_raw_port = _g.get("port", _g.get("Port", None))
 try:
-    _enable = bool(enable)  # noqa: F821 - component input
-except NameError:
-    _enable = False
-
-try:
-    _port = int(port) if port else DEFAULT_PORT  # noqa: F821 - component input
-except (NameError, TypeError, ValueError):
+    _port = int(_raw_port) if _raw_port else DEFAULT_PORT
+except (TypeError, ValueError):
     _port = DEFAULT_PORT
 
 if _enable:

@@ -91,5 +91,9 @@ Then try:
 | *"Could not reach the bridge on …"* | A stale `claude_gh_bridge.json` from a previous Rhino session. Toggle `enable` off (removes it) then on. |
 | *"schema mismatch"* | `claude_bridge.py` on the canvas is a different version from `server/protocol.py`. Re-paste the file. |
 | Bridge says `LISTENING` but calls hang | A modal dialog is open in Rhino/Grasshopper, blocking the UI thread. Close it. |
+| Panel wired to output shows nothing | Wire it to the **`a`** output, not `out`. `out` is only the print stream; the status line is in the script variable `a`. |
+| Bridge stays `OFF` with the toggle on | The inputs must be named **`enable`** / **`port`** (lowercase) — the script variable is the parameter nickname, case-sensitive. Rename them and flip the toggle. |
 | Edits don't appear | Check `gh_get_errors`. Also make sure you pasted the whole file — a truncated paste fails silently on some commands. |
+| `gh_capture_canvas` looks cropped | It captures the visible Grasshopper canvas. Bring the GH window forward and size it first. `gh_capture_viewport` (the geometry) is unaffected. |
 | Port already in use | Wire an integer to `port` (e.g. `9912`) and toggle `enable` off/on. |
+| Picked up code edits? | Toggle `enable` **off then on** — that restarts the socket server with the new code. |

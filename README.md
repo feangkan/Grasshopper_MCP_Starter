@@ -72,10 +72,12 @@ top-left. `gh_auto_layout` then arranges the stages left to right.
 ## Status
 
 - **Server side** (protocol, discovery, name resolution, layout maths) — covered
-  by `pytest` (`uv run --extra dev pytest`), 39 tests, no Rhino needed.
-- **Bridge side** (the Grasshopper API calls) — can only be verified in Rhino.
-  See [`LESSONS.md`](LESSONS.md) for the specific calls that are still unverified
-  and what to watch for on first run.
+  by `pytest` (`uv run --extra dev pytest`), 52 tests, no Rhino needed.
+- **Bridge side** — click-tested in Rhino 8.21 on 2026-09-03. Working: ping,
+  get_canvas, get_errors, get_value, solve, capture_viewport, add_component,
+  connect, set_value, delete, set_nickname, create_group, add_panel,
+  add_scribble, batch, set_pivot. Known-weak: `capture_canvas` only grabs the
+  visible canvas region (see [`LESSONS.md`](LESSONS.md)).
 
 Built milestone by milestone (M1 liveness → M6 polish); see the git history and
 [`docs/TOOLS.md`](docs/TOOLS.md).
