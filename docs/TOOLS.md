@@ -64,9 +64,30 @@ PNG of the active Rhino viewport — the geometry the definition produces.
 bridge also matches against the live component catalogue). Returns `guid`,
 `name`, `nickname`, `matched_from`.
 
+### `gh_add_input(role, x, y, nickname=None, min=None, max=None, value=None, graph_type="Bezier")`
+Place a **correctly-configured input widget** — prefer this over
+`gh_add_component` for anything the user will tune. `role` is chosen by meaning:
+
+| role | widget | default range / accuracy |
+|---|---|---|
+| `count` `integer` `n` `divisions` | Number Slider | integer, 0–50, 0 dp |
+| `even` `odd` | Number Slider | snapped even / odd |
+| `fraction` `factor` `ratio` | Number Slider | float 0–1, 3 dp |
+| `percent` | Number Slider | float 0–100, 0 dp |
+| `angle` | Number Slider | float 0–360, 1 dp |
+| `length` `distance` | Number Slider | float 0–1000, 1 dp |
+| `number` | Number Slider | float 0–100, 2 dp |
+| `seed` | Digit Scroller (integer slider if absent) | 0–9999 |
+| `toggle` `boolean` `switch` | Boolean Toggle | — |
+| `graph` `profile` `falloff` `distribution` `curve_control` | Graph Mapper | `graph_type`: Bezier (default), Linear, Sine, Parabola, Power, Perlin, Gaussian |
+
+`min` / `max` / `value` override the role defaults. A slider given no value starts
+at the midpoint. Returns the widget kind, resolved range/accuracy, and value.
+
 ### `gh_set_value(guid, value)`
-Slider → number; Boolean Toggle → true/false; Panel → text; Value List → item
-name or expression.
+Slider → number (rounded to the slider's own accuracy — integer sliders stay
+integer); Boolean Toggle → true/false; Panel → text; Value List → item name or
+expression. Out-of-range numbers widen the slider and are reported in `note`.
 
 ### `gh_connect(source, target, source_param=None, target_param=None)`
 Wire an output to an input. Params are name / nickname / index; omit for

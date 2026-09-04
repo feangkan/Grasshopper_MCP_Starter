@@ -260,6 +260,11 @@ def _object_extra(obj):
                 out[key] = _num(getter())
             except Exception as exc:
                 out[key + "_err"] = str(exc)
+        try:
+            out["accuracy"] = str(obj.Slider.Type)
+            out["decimals"] = int(obj.Slider.DecimalPlaces)
+        except Exception:
+            pass
         return out
     if tn == "GH_BooleanToggle":
         try:
@@ -498,11 +503,195 @@ def h_add_component(args):
             "nickname": obj.NickName, "matched_from": proxy.Desc.Name}
 
 
+# ---- typed inputs: pick the right widget + settings for the job ----------
+# role -> (widget kind, {accuracy, min, max, decimals})
+_INPUT_ROLES = {
+    "count":     ("slider", "Integer", 0.0,  50.0,   0),
+    "integer":   ("slider", "Integer", 0.0,  100.0,  0),
+    "n":         ("slider", "Integer", 0.0,  50.0,   0),
+    "divisions": ("slider", "Integer", 1.0,  50.0,   0),
+    "even":      ("slider", "Even",    0.0,  100.0,  0),
+    "odd":       ("slider", "Odd",     1.0,  99.0,   0),
+    "fraction":  ("slider", "Float",   0.0,  1.0,    3),
+    "factor":    ("slider", "Float",   0.0,  1.0,    3),
+    "ratio":     ("slider", "Float",   0.0,  1.0,    3),
+    "percent":   ("slider", "Float",   0.0,  100.0,  0),
+    "angle":     ("slider", "Float",   0.0,  360.0,  1),
+    "length":    ("slider", "Float",   0.0,  1000.0, 1),
+    "distance":  ("slider", "Float",   0.0,  1000.0, 1),
+    "number":    ("slider", "Float",   0.0,  100.0,  2),
+    "seed":      ("seed",   "Integer", 0.0,  9999.0, 0),
+    "toggle":    ("toggle", None, None, None, None),
+    "boolean":   ("toggle", None, None, None, None),
+    "switch":    ("toggle", None, None, None, None),
+    "graph":        ("graph", None, None, None, None),
+    "profile":      ("graph", None, None, None, None),
+    "falloff":      ("graph", None, None, None, None),
+    "distribution": ("graph", None, None, None, None),
+    "curve_control":("graph", None, None, None, None),
+}
+
+
+def h_add_input(args):
+    doc = active_doc()
+    role = str(args.get("role", "number")).strip().lower()
+    spec = _INPUT_ROLES.get(role, ("slider", "Float", 0.0, 100.0, 2))
+    kind, acc, d_lo, d_hi, d_dp = spec
+    x, y = float(args["x"]), float(args["y"])
+    nick = args.get("nickname")
+    lo = args.get("min", d_lo)
+    hi = args.get("max", d_hi)
+    val = args.get("value")
+
+    if kind == "toggle":
+        return _place_toggle(doc, x, y, nick, bool(val) if val is not None else False)
+    if kind == "graph":
+        return _place_graph(doc, x, y, nick, args.get("graph_type", "Bezier"))
+    if kind == "seed":
+        return _place_seed(doc, x, y, nick, int(lo), int(hi),
+                           int(val) if val is not None else None)
+    return _place_slider(doc, x, y, nick, acc, lo, hi, d_dp, val, role)
+
+
+def _place_slider(doc, x, y, nick, acc, lo, hi, dp, val, role):
+    from Grasshopper.Kernel.Special import GH_NumberSlider
+    s = GH_NumberSlider()
+    s.CreateAttributes()
+    s.Attributes.Pivot = System.Drawing.PointF(x, y)
+    try:
+        from Grasshopper.GUI.Base import GH_SliderAccuracy
+        s.Slider.Type = getattr(GH_SliderAccuracy, acc or "Float")
+    except Exception:
+        pass
+    try:
+        if lo is not None:
+            s.Slider.Minimum = System.Decimal(float(lo))
+        if hi is not None:
+            s.Slider.Maximum = System.Decimal(float(hi))
+        s.Slider.DecimalPlaces = int(dp)
+    except Exception:
+        pass
+    doc.UndoUtil.RecordAddObjectEvent("Claude: add %s slider" % role, s)
+    doc.AddObject(s, False)
+    if nick:
+        s.NickName = nick
+    if val is None and lo is not None and hi is not None:
+        val = (float(lo) + float(hi)) / 2.0
+        if acc and acc != "Float":
+            val = round(val)
+    if val is not None:
+        try:
+            s.SetSliderValue(System.Decimal(float(val)))
+        except Exception:
+            pass
+    doc.NewSolution(False)
+    return {"guid": str(s.InstanceGuid), "kind": "Number Slider", "role": role,
+            "accuracy": acc, "min": lo, "max": hi, "decimals": int(dp),
+            "nickname": s.NickName, "value": _num(s.CurrentValue)}
+
+
+def _place_toggle(doc, x, y, nick, value):
+    from Grasshopper.Kernel.Special import GH_BooleanToggle
+    t = GH_BooleanToggle()
+    t.CreateAttributes()
+    t.Attributes.Pivot = System.Drawing.PointF(x, y)
+    t.Value = bool(value)
+    doc.UndoUtil.RecordAddObjectEvent("Claude: add toggle", t)
+    doc.AddObject(t, False)
+    if nick:
+        t.NickName = nick
+    t.ExpireSolution(True)
+    doc.NewSolution(False)
+    return {"guid": str(t.InstanceGuid), "kind": "Boolean Toggle",
+            "nickname": t.NickName, "value": bool(t.Value)}
+
+
+def _place_seed(doc, x, y, nick, lo, hi, val):
+    proxy = _find_proxy("Digit Scroller")
+    if proxy is not None:
+        try:
+            obj = proxy.CreateInstance()
+            obj.CreateAttributes()
+            obj.Attributes.Pivot = System.Drawing.PointF(x, y)
+            for attr, v in (("MinimumValue", System.Decimal(lo)),
+                            ("MaximumValue", System.Decimal(hi)),
+                            ("DecimalPlaces", 0)):
+                try:
+                    setattr(obj, attr, v)
+                except Exception:
+                    pass
+            doc.UndoUtil.RecordAddObjectEvent("Claude: add seed scroller", obj)
+            doc.AddObject(obj, False)
+            if nick:
+                obj.NickName = nick
+            if val is not None:
+                try:
+                    obj.Value = System.Decimal(int(val))
+                except Exception:
+                    pass
+            doc.NewSolution(False)
+            return {"guid": str(obj.InstanceGuid), "kind": "Digit Scroller",
+                    "role": "seed", "min": lo, "max": hi, "nickname": obj.NickName}
+        except Exception:
+            pass
+    out = _place_slider(doc, x, y, nick, "Integer", lo, hi, 0, val, "seed")
+    out["kind"] = "Number Slider (integer)"
+    out["note"] = "Digit Scroller unavailable in this build; used an integer slider"
+    return out
+
+
+_GRAPH_CLASSES = {
+    "bezier": "GH_BezierGraph", "linear": "GH_LinearGraph",
+    "sine": "GH_SinGraph", "sin": "GH_SinGraph",
+    "parabola": "GH_ParabolaGraph", "power": "GH_PowerGraph",
+    "perlin": "GH_PerlinGraph", "gaussian": "GH_GaussianGraph",
+    "conic": "GH_ConicGraph", "square_root": "GH_SqrtGraph",
+}
+
+
+def _place_graph(doc, x, y, nick, graph_type):
+    from Grasshopper.Kernel.Special import GH_GraphMapper
+    g = GH_GraphMapper()
+    g.CreateAttributes()
+    g.Attributes.Pivot = System.Drawing.PointF(x, y)
+    applied = None
+    try:
+        import Grasshopper.Kernel.Graphs as GR
+        cls = _GRAPH_CLASSES.get(str(graph_type).strip().lower(), "GH_BezierGraph")
+        graph = getattr(GR, cls)()
+        try:
+            g.Container.Graph = graph
+        except Exception:
+            g.Graph = graph
+        applied = cls
+    except Exception:
+        applied = None
+    doc.UndoUtil.RecordAddObjectEvent("Claude: add graph mapper", g)
+    doc.AddObject(g, False)
+    if nick:
+        g.NickName = nick
+    doc.NewSolution(False)
+    out = {"guid": str(g.InstanceGuid), "kind": "Graph Mapper", "nickname": g.NickName}
+    if applied:
+        out["graph_type"] = applied
+    else:
+        out["note"] = ("placed, but graph type not set - right-click the mapper, "
+                       "Graph Types > Bezier, then drag the curve")
+    return out
+
+
 def _set_decimal(slider, value):
     try:
         slider.SetSliderValue(System.Decimal(float(value)))
     except Exception:
         slider.SetSliderValue(System.Decimal.Parse(str(value)))
+
+
+def _slider_is_integer(slider):
+    try:
+        return str(slider.Slider.Type) in ("Integer", "Even", "Odd")
+    except Exception:
+        return False
 
 
 def h_set_value(args):
@@ -516,6 +705,8 @@ def h_set_value(args):
     if tn == "GH_NumberSlider":
         lo, hi = _num(obj.Slider.Minimum), _num(obj.Slider.Maximum)
         want = float(value)
+        if _slider_is_integer(obj):
+            want = float(round(want))          # honour the slider's own rounding
         if not lo <= want <= hi:
             note = "requested %s is outside the slider range %s..%s; widened it" % (want, lo, hi)
             if want < lo:
@@ -820,6 +1011,7 @@ HANDLERS = {
     "capture_canvas": h_capture_canvas,
     "capture_viewport": h_capture_viewport,
     "add_component": h_add_component,
+    "add_input": h_add_input,
     "set_value": h_set_value,
     "connect": h_connect,
     "disconnect": h_disconnect,

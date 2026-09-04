@@ -54,6 +54,25 @@ on top of them.
 - After a build, leave no disconnected leftovers from your own scaffolding —
   delete a component you added and then decided against.
 
+## Choosing input widgets (use `gh_add_input`, not `gh_add_component`)
+A generic 3-decimal 0..1 Number Slider is the wrong control for most inputs. For
+anything the user will tune, call `gh_add_input` with a `role` chosen by what the
+number *means*:
+- a **count / N / division count** → `count` (integer slider, no decimals). Never
+  a float slider — that is also what caused the "slider re-snapped itself" bug.
+- a **0..1 weight / blend / factor** → `factor`; a **percentage** → `percent`;
+  an **angle** → `angle`; a **length / distance in mm** → `length`.
+- a **random seed** → `seed` (Digit Scroller — scroll each digit over a wide
+  integer range; a slider is a poor fit for seeds).
+- **on/off** → `toggle`; **pick-one-of-a-set** → a Value List via
+  `gh_add_component`.
+- **shaping a 1-D form** — a taper, a falloff, a profile, a distribution along a
+  length: one **Graph Mapper** (`role="graph"`, `graph_type="Bezier"`) beats
+  three sliders. The user drags the curve. If the graph type will not set
+  programmatically, say so and tell them the two-click fix.
+Pass `min` / `max` / `value` when the context implies a specific range. Always
+name the input (`nickname`) in the user's terms and units.
+
 ## The working loop (this is the product, not a nicety)
 After each build step, in order:
 1. `gh_solve` (or rely on the auto-solve the mutation triggered).

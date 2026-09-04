@@ -137,6 +137,48 @@ def gh_add_component(name: str, x: float, y: float, nickname: str | None = None)
 
 
 @mcp.tool()
+def gh_add_input(
+    role: str,
+    x: float,
+    y: float,
+    nickname: str | None = None,
+    min: float | None = None,
+    max: float | None = None,
+    value: float | bool | None = None,
+    graph_type: str = "Bezier",
+) -> dict[str, Any]:
+    """Place a **correctly-configured input widget** -- prefer this over
+    gh_add_component for anything the user will tune.
+
+    Pick `role` by what the number MEANS, not by widget:
+
+      count / integer / n / divisions   integer slider (no decimals)
+      even / odd                        integer slider snapped even / odd
+      fraction / factor / ratio         float slider 0..1, 3 decimals
+      percent                           float slider 0..100, 0 decimals
+      angle                             float slider 0..360, 1 decimal
+      length / distance                 float slider 0..1000, 1 decimal
+      number                            float slider 0..100, 2 decimals
+      seed                              Digit Scroller 0..9999 (integer slider
+                                        if the build has no scroller)
+      toggle / boolean / switch         Boolean Toggle
+      graph / profile / falloff /       Graph Mapper -- a draggable curve, far
+        distribution / curve_control    better than several sliders for shaping
+                                        a 1-D form. `graph_type`: Bezier (default),
+                                        Linear, Sine, Parabola, Power, Perlin,
+                                        Gaussian.
+
+    min / max / value override the role's defaults. A slider with no value given
+    starts at the midpoint so nothing downstream is empty.
+    """
+    return _bridge().call(
+        "add_input",
+        {"role": role, "x": x, "y": y, "nickname": nickname,
+         "min": min, "max": max, "value": value, "graph_type": graph_type},
+    )
+
+
+@mcp.tool()
 def gh_set_value(guid: str, value: Any) -> dict[str, Any]:
     """Set the value of a slider, boolean toggle, panel, or value list.
     For a slider pass a number; for a toggle pass true/false; for a panel pass text.

@@ -40,6 +40,7 @@ COMMANDS = (
     "capture_viewport",
     # --- M4: edit ---------------------------------------------------
     "add_component",
+    "add_input",
     "set_value",
     "connect",
     "disconnect",
