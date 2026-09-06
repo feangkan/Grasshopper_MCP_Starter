@@ -146,3 +146,23 @@ Delete everything on the canvas except:
 
 `dry_run=True` returns `would_delete[]` and changes nothing — use it to show the
 list and confirm first. One undo record; `Ctrl+Z` restores everything.
+
+## gh_set_script
+
+Replace the source of a Python 3 / GhPython component from a file on disk.
+
+```
+gh_set_script(guid="<InstanceGuid>", file_path="D:/.../my_script.py")
+gh_set_script(guid="<InstanceGuid>", code="a = 1")     # literal alternative
+```
+
+Exactly one of `file_path` / `code`. Prefer `file_path`: the file stays the
+source of truth and nothing large travels through the conversation.
+
+Swaps the **body only** — component inputs and outputs are untouched, so add or
+rename those in Grasshopper first. The result reports which property accepted
+the source (`Code`, `Script`, ...), since Rhino 8's Python 3 component and the
+older GhPython component do not agree on the name.
+
+On failure the error names the component type and every property tried; add the
+right one to `_SCRIPT_ATTRS` in `claude_bridge.py`.

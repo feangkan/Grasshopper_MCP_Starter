@@ -48,6 +48,31 @@ batch / set_pivot. Undo records show as `Claude: ...` in the Edit menu.
 
 ## Still weak
 
+- **`gh_connect` / `gh_disconnect` only honour `source_param` / `target_param`,
+  not `from_param` / `to_param`.** Passing `from_param`/`to_param` is silently
+  dropped (pydantic ignores the extra keys) and the wire lands on the target's
+  *first* input regardless of type — e.g. a `MeshParameters` output wired into a
+  `Brep` input. The response echo (`from_param`/`to_param`) is also unreliable:
+  `gh_disconnect` reports the source's first output name every time, whether or
+  not that wire existed. Workaround: always pass `source_param`/`target_param`;
+  to remove one wire of a multi-source input, delete and re-add the component.
+  Found building the Kangaroo dome demo (2026-09-04).
+
+- **A slider's value changed itself mid-session (150 -> 47.238).** The
+  `Mesh Point Count` slider, set via `gh_set_value` and never wired to an
+  output, came back as `47.238` after an unrelated `gh_solve`. Re-setting it
+  stuck. Cause unconfirmed — possibly `gh_set_value`'s range-widening interacting
+  with a decimal slider, or a stray canvas edit. Re-read slider values before
+  relying on them.
+
+- **`gh_add_component` fuzzy match silently picks nonsense for absent names.**
+  "End Points" -> `Point List`, "Curve End Points" -> `Interpolate`,
+  "Construct Mesh" -> `Vector XYZ`, "Solver" -> `Division`. And the interactive
+  **Kangaroo2 `Solver`** (`Kangaroo2Component`) cannot be instantiated at all —
+  every name tried threw a bare error. `ZombieSolver` (headless) adds fine.
+  Always verify the returned `name` / `matched_from`, and re-read the canvas
+  after adding.
+
 - **`capture_canvas` only grabs the visible canvas region.**
   `GH_Canvas.GenerateHiResImage` does not exist in this build; the `DrawToBitmap`
   fallback captures the control at its current on-screen size, so a hidden or

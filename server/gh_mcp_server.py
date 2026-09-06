@@ -15,6 +15,7 @@ Tools are grouped by the milestone that introduced them:
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import Image, MCPServer
@@ -231,6 +232,30 @@ def gh_delete(guids: list[str]) -> dict[str, Any]:
 def gh_set_nickname(guid: str, nickname: str) -> dict[str, Any]:
     """Rename an object's nickname (what shows on the component and on hover)."""
     return _bridge().call("set_nickname", {"guid": guid, "nickname": nickname})
+
+
+@mcp.tool()
+def gh_set_script(
+    guid: str, file_path: str | None = None, code: str | None = None
+) -> dict[str, Any]:
+    """Replace the source of a script component (Python 3 / GhPython).
+
+    Removes the paste-by-hand loop: edit the .py on disk, push it straight in.
+
+    guid       InstanceGuid of the script component (from gh_get_canvas).
+    file_path  Path to a .py file. Preferred - the file stays the source of
+               truth and nothing large travels through the conversation.
+    code       Literal source, as an alternative to file_path.
+
+    Exactly one of file_path / code. Component inputs and outputs are NOT
+    touched, so add or rename those in Grasshopper first; this only swaps the
+    body. The result reports which property accepted the source.
+    """
+    if (file_path is None) == (code is None):
+        raise ValueError("pass exactly one of file_path or code")
+    if file_path is not None:
+        code = Path(file_path).read_text(encoding="utf-8")
+    return _bridge().call("set_script", {"guid": guid, "code": code})
 
 
 @mcp.tool()

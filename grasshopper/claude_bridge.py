@@ -879,6 +879,50 @@ def h_set_nickname(args):
     return {"guid": args["guid"], "nickname": obj.NickName}
 
 
+# ---- scripting -------------------------------------------------------
+# Where each script-component family keeps its source. Rhino 8's Python 3
+# component and the older GhPython component do not agree, so try in order and
+# report what was actually used.
+_SCRIPT_ATTRS = ("Code", "Script", "ScriptSource", "SourceCode", "Text")
+
+
+def h_set_script(args):
+    """Replace the source of a script component (Python 3 / GhPython).
+
+    This is what removes the paste-by-hand loop: Claude writes the .py file and
+    pushes it straight into the component. On failure the error names the
+    component type and every attribute tried, so the fix is one edit away.
+    """
+    doc = active_doc()
+    obj = find(doc, args["guid"])
+    if obj is None:
+        raise RuntimeError("no object with guid %r" % args["guid"])
+    code = args["code"]
+    if not isinstance(code, str):
+        raise RuntimeError("code must be a string, got %r" % type(code).__name__)
+
+    doc.UndoUtil.RecordGenericObjectEvent("Claude: set script", obj)
+    tried = []
+    for name in _SCRIPT_ATTRS:
+        if not hasattr(obj, name):
+            tried.append(name + ": absent")
+            continue
+        try:
+            setattr(obj, name, code)
+        except Exception as exc:
+            tried.append("%s: %s" % (name, exc))
+            continue
+        obj.ExpireSolution(True)
+        doc.NewSolution(False)
+        _refresh()
+        return {"guid": args["guid"], "attr": name, "chars": len(code),
+                "type": type(obj).__name__}
+    raise RuntimeError(
+        "could not set source on %s (tried %s). Add the right property name to "
+        "_SCRIPT_ATTRS in claude_bridge.py."
+        % (type(obj).__name__, "; ".join(tried)))
+
+
 def h_create_group(args):
     from Grasshopper.Kernel.Special import GH_Group
 
@@ -1018,6 +1062,7 @@ HANDLERS = {
     "delete": h_delete,
     "set_pivot": h_set_pivot,
     "set_nickname": h_set_nickname,
+    "set_script": h_set_script,
     "create_group": h_create_group,
     "add_panel": h_add_panel,
     "add_scribble": h_add_scribble,

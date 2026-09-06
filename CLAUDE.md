@@ -111,9 +111,54 @@ style unless they opt out:
 - A bridge bug found in Rhino gets: root-cause fix, a `LESSONS.md` line naming
   the cause, and its own commit.
 
+## Starting a new Grasshopper project from this repo
+This repo is the **starter**, not a home for project work. It stays generic: the
+bridge, the server, the docs. Any actual design definition lives in its own
+folder outside it.
+
+When the user opens a session with this repo and names a project:
+1. **Make the project folder** as a sibling of this repo, named for the project
+   (`D:\Claude code\<Project_Name>\`). Never put project files in `grasshopper/`
+   -- that directory is gitignored except for `claude_bridge.py`.
+2. **Scaffold it**: `<project>/scripts/` for the paste-in `.py` files,
+   `<project>/gh/` for the `.gh` definitions, and a `SPEC.md`.
+3. **Write `SPEC.md` before writing code.** Reference images, and the 3-5 rules
+   the geometry must obey. Sessions sprawl when the target is renegotiated
+   mid-iteration; a written spec is what stops that. Re-read it before each
+   major change and say so if a request contradicts it.
+4. **`gh_ping` immediately** and report whether the bridge is live, so the user
+   knows before anything else whether they need to drop the bridge component in.
+5. Reconcile the canvas (see the section above) -- it is shared across projects.
+
+### What the user still has to do by hand
+Say this list at the start of every new project, then stop repeating it:
+- Open Rhino -> Grasshopper.
+- Drop the **Claude Bridge** component on the canvas and set its toggle `true`.
+  (Best made once as a Grasshopper **User Object** so it is a drag, not a paste.)
+- **File > Save As** for each `.gh` version -- the bridge has no save command.
+- Add or rename a script component's **inputs/outputs** -- `set_script` swaps
+  only the body.
+
+## Pushing code into a script component
+`gh_set_script(guid, file_path=...)` replaces a Python 3 / GhPython component's
+source straight from a file on disk. Use it instead of asking the user to
+copy-paste; the `.py` file stays the single source of truth and nothing large
+travels through the conversation. It does **not** create inputs or outputs -- ask
+the user to add those once, then iterate the body freely.
+
+If it fails, the error names the component type and every property tried; add
+the right one to `_SCRIPT_ATTRS` in `claude_bridge.py` rather than working
+around it.
+
 ## Versioning
-- Git only. No `_V2` / `(copy)` files. Commit per milestone; tag milestones
-  (`git tag v1`). Commit messages describe the behaviour change.
+- **This repo: git only.** No `_V2` / `(copy)` files. Commit per milestone; tag
+  milestones (`git tag v1`). Commit messages describe the behaviour change.
+- **Project design scripts: numbered files.** In a project folder, each version
+  the user accepts is saved as a new file -- `cluster_field_v1.py`,
+  `cluster_field_v2.py`, ... -- and **never overwritten**. `.gh` is binary and
+  `.py` design scripts are iterated fast and reverted often; git alone is too
+  coarse to get "the one that looked right" back. Before writing, list the
+  folder and take the next unused number.
 - Python files are `snake_case.py`.
 
 ## Milestones (delivered)

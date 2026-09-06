@@ -10,6 +10,13 @@ __pycache__/
 *.ghbak
 *.rhl
 
+# This repo is a generic STARTER for any Grasshopper project. Per-project work
+# -- definitions and the design scripts pasted into them -- belongs in its own
+# project folder, not here. claude_bridge.py is the only file that lives in
+# grasshopper/.
+grasshopper/*
+!grasshopper/claude_bridge.py
+
 # Bridge runtime
 claude_gh_bridge.json
 
