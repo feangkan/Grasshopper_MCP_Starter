@@ -20,14 +20,14 @@ This repo ships `.mcp.json`:
   "mcpServers": {
     "grasshopper": {
       "command": "uv",
-      "args": ["run", "--directory", "D:/Claude code/Grasshopper_MCP",
+      "args": ["run", "--directory", "D:/Claude code/Grasshopper_MCP_Starter",
                "python", "-m", "server.gh_mcp_server"]
     }
   }
 }
 ```
 
-Launch Claude Code from `D:\Claude code\Grasshopper_MCP` (or point your global
+Launch Claude Code from `D:\Claude code\Grasshopper_MCP_Starter` (or point your global
 `~/.claude.json` at the same command) and it starts the server over stdio. If you
 cloned elsewhere, edit the `--directory` path.
 
