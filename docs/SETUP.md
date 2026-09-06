@@ -20,7 +20,7 @@ This repo ships `.mcp.json`:
   "mcpServers": {
     "grasshopper": {
       "command": "uv",
-      "args": ["run", "--directory", "D:/Claude code/Grasshopper_MCP_Starter",
+      "args": ["run", "--directory", "D:/Claude code/Grasshopper_MCP",
                "python", "-m", "server.gh_mcp_server"]
     }
   }
