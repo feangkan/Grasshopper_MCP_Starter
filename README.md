@@ -39,12 +39,15 @@ Full detail in [`docs/SETUP.md`](docs/SETUP.md). Short version:
 1. **Register the MCP server.** `.mcp.json` in this repo already does it for
    Claude Code launched from this folder. It runs the server with
    [`uv`](https://docs.astral.sh/uv/) — install that if you don't have it.
-2. **Add the bridge to Grasshopper.** In Rhino 8: open Grasshopper → drop a
-   **Python 3 Script** component → paste all of
-   [`grasshopper/claude_bridge.py`](grasshopper/claude_bridge.py) → give it a
-   Boolean `enable` input (a Boolean Toggle) and an optional integer `port`
-   input. Set `enable` to **True**. The component reads
-   `Claude bridge LISTENING on 127.0.0.1:9911`.
+2. **Open the bridge in Grasshopper.** In Rhino 8: open
+   [`template/Gh_MCP_Starter.gh`](template/Gh_MCP_Starter.gh). It already has
+   the bridge component pasted in ([`grasshopper/claude_bridge.py`](grasshopper/claude_bridge.py)),
+   wired to a Boolean Toggle (`enable`, set **True**) and a `port` input
+   (defaults 9911). The component reads
+   `Claude bridge LISTENING on 127.0.0.1:9911`. This is the canonical starting
+   canvas for every new project — never rebuild the bridge from scratch; Save
+   As it into your project's own `gh/` folder once open. See
+   [`CLAUDE.md`](CLAUDE.md) for the full new-project flow.
 3. **Check it.** Ask Claude: *"ping grasshopper."* You should get back your Rhino
    version and the open document's name.
 

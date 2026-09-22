@@ -126,16 +126,26 @@ When the user opens a session with this repo and names a project:
    the geometry must obey. Sessions sprawl when the target is renegotiated
    mid-iteration; a written spec is what stops that. Re-read it before each
    major change and say so if a request contradicts it.
-4. **`gh_ping` immediately** and report whether the bridge is live, so the user
-   knows before anything else whether they need to drop the bridge component in.
+4. **`gh_ping` immediately** and report whether the bridge is live. If it is
+   not, tell the user to open **[`template/Gh_MCP_Starter.gh`](template/Gh_MCP_Starter.gh)**
+   in Rhino -- the bridge component is already built and toggled on in that
+   file, so this is a one-click open, never a from-scratch paste -- then Save
+   As it into `<project>/gh/`.
 5. Reconcile the canvas (see the section above) -- it is shared across projects.
 
 ### What the user still has to do by hand
 Say this list at the start of every new project, then stop repeating it:
 - Open Rhino -> Grasshopper.
-- Drop the **Claude Bridge** component on the canvas and set its toggle `true`.
-  (Best made once as a Grasshopper **User Object** so it is a drag, not a paste.)
-- **File > Save As** for each `.gh` version -- the bridge has no save command.
+- Open **[`template/Gh_MCP_Starter.gh`](template/Gh_MCP_Starter.gh)** (double-click,
+  or File > Open) as the starting canvas -- it already has the Claude Bridge
+  component pasted in, its `enable` toggle set `true`, wired to `port` (defaults
+  9911). This is the one canonical starting point for every new project; nobody
+  should paste `claude_bridge.py` by hand again.
+- Immediately **File > Save As** into the new project's own `gh/` folder, under
+  the project name -- never keep working in `template/Gh_MCP_Starter.gh` itself,
+  it must stay pristine for the next project to copy from.
+- **File > Save As** again for each further `.gh` version -- the bridge has no
+  save command.
 - Add or rename a script component's **inputs/outputs** -- `set_script` swaps
   only the body.
 
