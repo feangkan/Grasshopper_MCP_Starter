@@ -129,8 +129,14 @@ When the user opens a session with this repo and names a project:
 4. **`gh_ping` immediately** and report whether the bridge is live. If it is
    not, tell the user to open **[`template/Gh_MCP_Starter.gh`](template/Gh_MCP_Starter.gh)**
    in Rhino -- the bridge component is already built and toggled on in that
-   file, so this is a one-click open, never a from-scratch paste -- then Save
-   As it into `<project>/gh/`.
+   file, so this is a one-click open, never a from-scratch paste -- then
+   **File > Save As** it into `<project>/gh/` **before any other edit**, so
+   Rhino's live document points at the project copy, not the template.
+   **Do not build on the template file itself and do not let `Ctrl+S` fire
+   while `gh_ping`'s `doc_path` still reads `template/Gh_MCP_Starter.gh`** --
+   that silently overwrites the shared starting canvas for every future
+   project. If a session's `gh_ping` ever reports that path once real
+   components are being added, stop and tell the user to Save As immediately.
 5. Reconcile the canvas (see the section above) -- it is shared across projects.
 
 ### What the user still has to do by hand
@@ -141,9 +147,13 @@ Say this list at the start of every new project, then stop repeating it:
   component pasted in, its `enable` toggle set `true`, wired to `port` (defaults
   9911). This is the one canonical starting point for every new project; nobody
   should paste `claude_bridge.py` by hand again.
-- Immediately **File > Save As** into the new project's own `gh/` folder, under
-  the project name -- never keep working in `template/Gh_MCP_Starter.gh` itself,
-  it must stay pristine for the next project to copy from.
+- **Immediately File > Save As** into the new project's own `gh/` folder, under
+  the project name, *before touching anything else on the canvas*. Never keep
+  working in `template/Gh_MCP_Starter.gh` itself and never plain-save (`Ctrl+S`)
+  while it is still open under that name -- it must stay pristine, bridge-only,
+  for the next project to copy from. If it does get overwritten, restore it
+  with `git checkout -- template/Gh_MCP_Starter.gh` (it is tracked in git for
+  exactly this reason).
 - **File > Save As** again for each further `.gh` version -- the bridge has no
   save command.
 - Add or rename a script component's **inputs/outputs** -- `set_script` swaps
