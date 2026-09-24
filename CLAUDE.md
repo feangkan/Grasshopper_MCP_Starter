@@ -3,7 +3,7 @@
 This repo is a **Claude <-> Grasshopper bridge**: an MCP server (`server/`) plus a
 paste-in Grasshopper component (`grasshopper/claude_bridge.py`). It is not a
 Rhino Eto tool, so the CONFIG -> ENGINE -> RHINO I/O -> GUI layering of the
-architectural-python-starter does not apply. These rules do.
+architectural-coding-starter does not apply. These rules do.
 
 ## Architecture
 - **Two halves, one contract.** `server/protocol.py` holds `SCHEMA` and the
